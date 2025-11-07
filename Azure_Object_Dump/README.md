@@ -162,6 +162,6 @@ id                                          name        location
 }
 ```
 
-# Search for a name or IP across all tables
-python3 dump_azure_objects.py --search web-01
-python3 dump_azure_objects.py --search 10.0.0.4 --format json
+# Search for a name or IP (shell script)
+./dump_azure_objects.sh web-01
+./dump_azure_objects.sh 10.0.0.4
