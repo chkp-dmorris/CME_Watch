@@ -3,11 +3,11 @@
 ## Overview
 This toolkit provides a two-phase approach to Azure object management:
 
-### Phase 1: Data Collection (Requires Subscription)
+### Phase 1: Data Collection (Requires Azure Credentials)
 Azure scanning tools populate a SQLite database with objects from your specified subscription(s). Each scan **adds** data to the existing database, allowing you to build a comprehensive inventory across multiple subscriptions.
 
-### Phase 2: Data Extraction (No Subscription Needed)
-The dump tools read from the populated database and can export data in various formats. They work on **all collected data** regardless of which subscription(s) it came from.
+### Phase 2: Data Extraction (NO Azure Credentials Needed)
+The dump tools read from the populated database and can export data in various formats. They work on **all collected data** regardless of which subscription(s) it came from. **These tools work completely offline** from the local database.
 
 **Database Location**: 
 ```
@@ -16,11 +16,12 @@ The dump tools read from the populated database and can export data in various f
 
 ## Workflow Summary
 ```
-1. Scan Subscription A → Database
-2. Scan Subscription B → Database (data added)
-3. Scan Subscription C → Database (data added)
-4. Run dump tools → Extract ALL data from A+B+C
+1. Scan Subscription A → Database (needs Azure creds)
+2. Scan Subscription B → Database (needs Azure creds) 
+3. Scan Subscription C → Database (needs Azure creds)
+4. Run dump tools → Extract ALL data from A+B+C (NO Azure creds needed)
 ```
+
 
 ## Tools Created
 
@@ -46,7 +47,7 @@ The dump tools read from the populated database and can export data in various f
 **Usage**:
 ```bash
 # Copy to CloudGuard system first
-scp dump_azure_objects.py expert@135.237.14.172:/tmp/
+scp dump_azure_objects.py expert@1.2.3.4:/tmp/
 
 # Then run on CloudGuard system - NO subscription needed!
 python3 /tmp/dump_azure_objects.py [options]
@@ -83,16 +84,40 @@ python3 dump_azure_objects.py --table networkSecurityGroups --output nsg_summary
 
 > **Note**: The database is **cumulative** - it contains objects from all subscriptions that have been scanned. The dump tools give you a unified view across your entire Azure environment.
 
-## How to Populate the Database
+## How to Use the Dump Tools
 
 ### Prerequisites
+- **Database file exists**: `/opt/CPvsec-R82/scripts/azure/cloudguard_controller`
+- **SQLite access**: Ability to read SQLite files on the CloudGuard system
+- **No Azure credentials needed**: Dump tools work completely offline from the database
+
+### Running the Dump Tools
+```bash
+# Copy scripts to CloudGuard system
+scp dump_azure_objects.sh expert@1.2.3.4:/tmp/
+scp dump_azure_objects.py expert@1.2.3.4:/tmp/
+
+# Run simple dump
+/tmp/dump_azure_objects.sh
+
+# Or run advanced dump
+python3 /tmp/dump_azure_objects.py --format json --output azure_data.json
+```
+
+---
+
+## Data Collection Setup (Optional)
+
+> **Note**: This section is only needed if the database doesn't exist yet or you want to refresh the data with new Azure scans.
+
+### Prerequisites for Data Collection
 1. **Azure Credentials**: Set up authentication to your Azure environment:
    ```bash
    export AZURE_CREDENTIALS="your_credentials_here"
    # Optional: export AZURE_ENVIRONMENT="AzureCloud" (default)
    ```
 
-2. **CloudGuard Controller Access**: Ensure you have access to the CloudGuard system at the specified IP.
+2. **CloudGuard Controller Access**: Ensure you have access to the CloudGuard system for running scans.
 
 ### Step-by-Step Workflow
 
@@ -245,19 +270,21 @@ id                                          name        location
 }
 ```
 
-## Quick Start Checklist
+## Quick Start Guide
 
-- [ ] **Configure Azure credentials** (`export AZURE_CREDENTIALS="..."`)
-- [ ] **Test connection** (`python3 /opt/CPvsec-R82/scripts/azure/vsec.py --test`)
-- [ ] **List available subscriptions** (`python3 /opt/CPvsec-R82/scripts/azure/vsec.py -ls <datacenter>`)
-- [ ] **Scan target subscription(s)** (`python3 /opt/CPvsec-R82/scripts/azure/vsec.py -s <datacenter> <subscription_id>`)
-- [ ] **Verify database creation** (check if `/opt/CPvsec-R82/scripts/azure/cloudguard_controller` exists)
-- [ ] **Run dump tools** to extract collected data
+### Primary Use Case: Extract Data from Existing Database
+- [ ] **Copy dump scripts** to CloudGuard system (`scp dump_azure_objects.* expert@1.2.3.4:/tmp/`)
+- [ ] **Run dump tools** (`/tmp/dump_azure_objects.sh` or `python3 /tmp/dump_azure_objects.py`)
+- [ ] **Export data** in your preferred format (table or JSON)
+
+### Optional: If Database Doesn't Exist Yet
+See the "Data Collection Setup" section below if you need to populate the database first.
 
 ## Current Status
-- ❌ Database doesn't exist yet (run Azure scanning first)
-- ✅ Dump tools are ready and available
-- 📋 Waiting for subscription data to be collected
+- ✅ **Dump tools are ready** - can extract data from any existing database
+- ❓ **Database status unknown** - check if `/opt/CPvsec-R82/scripts/azure/cloudguard_controller` exists
+- 📋 **If database exists** - you can immediately use the dump tools
+- � **If database missing** - see "Data Collection Setup" section below
 
 ## Important Notes
 
