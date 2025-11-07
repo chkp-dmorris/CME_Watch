@@ -1,28 +1,5 @@
 # Azure Objects Dumper - Usage Guide
 
-## Overview
-This toolkit provides a two-phase approach to Azure object management:
-
-### Phase 1: Data Collection (Requires Azure Credentials)
-Azure scanning tools populate a SQLite database with objects from your specified subscription(s). Each scan **adds** data to the existing database, allowing you to build a comprehensive inventory across multiple subscriptions.
-
-### Phase 2: Data Extraction (NO Azure Credentials Needed)
-The dump tools read from the populated database and can export data in various formats. They work on **all collected data** regardless of which subscription(s) it came from. **These tools work completely offline** from the local database.
-
-**Database Location**: 
-```
-/opt/CPvsec-R82/scripts/azure/cloudguard_controller
-```
-
-## Workflow Summary
-```
-1. Scan Subscription A → Database (needs Azure creds)
-2. Scan Subscription B → Database (needs Azure creds) 
-3. Scan Subscription C → Database (needs Azure creds)
-4. Run dump tools → Extract ALL data from A+B+C (NO Azure creds needed)
-```
-
-
 ## Tools Created
 
 > **Important**: These dump tools work on the **existing database** - no subscription specification needed!
