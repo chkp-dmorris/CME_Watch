@@ -54,6 +54,33 @@ dump_table() {
     echo
 }
 
+# Function to search by name or IP in a table
+search_table() {
+    local table_name="$1"
+    local search_term="$2"
+    # Find columns named 'name' or containing 'ip' (case-insensitive)
+    local columns=$(sqlite3 "$DB_PATH" "PRAGMA table_info($table_name);" | awk -F'|' '{print $2}' | grep -i -E 'name|ip')
+    if [ -z "$columns" ]; then
+        return
+    fi
+    local where_clauses=""
+    for col in $columns; do
+        if [ -n "$where_clauses" ]; then
+            where_clauses+=" OR "
+        fi
+        where_clauses+="$col LIKE '%$search_term%'"
+    done
+    local query="SELECT * FROM $table_name WHERE $where_clauses;"
+    local results=$(sqlite3 -header -column "$DB_PATH" "$query")
+    if [ -n "$results" ]; then
+        echo "================================================"
+        echo "TABLE: $table_name (search: $search_term)"
+        echo "================================================"
+        echo "$results"
+        echo
+    fi
+}
+
 # Get all tables
 echo "Getting table list..."
 tables=$(sqlite3 "$DB_PATH" "SELECT name FROM sqlite_master WHERE type='table';")
@@ -69,6 +96,21 @@ echo "$tables" | while read table; do
     echo "  - $table: $count records"
 done
 echo
+
+# If a search term is provided, search all tables and exit
+if [ -n "$1" ]; then
+    search_term="$1"
+    found=0
+    echo "Searching for: $search_term"
+    echo "$tables" | while read table; do
+        search_table "$table" "$search_term" && found=1
+    done
+    if [ "$found" -eq 0 ]; then
+        echo "No results found for search: $search_term"
+    fi
+    echo "✅ Search completed"
+    exit 0
+fi
 
 # Dump each table
 echo "$tables" | while read table; do
