@@ -1,25 +1,45 @@
 # Azure Objects Dumper - Usage Guide
 
 ## Overview
-I've created tools to dump all Azure objects stored in the CloudGuard Controller database. The objects are stored in a SQLite database at:
+This toolkit provides a two-phase approach to Azure object management:
+
+### Phase 1: Data Collection (Requires Subscription)
+Azure scanning tools populate a SQLite database with objects from your specified subscription(s). Each scan **adds** data to the existing database, allowing you to build a comprehensive inventory across multiple subscriptions.
+
+### Phase 2: Data Extraction (No Subscription Needed)
+The dump tools read from the populated database and can export data in various formats. They work on **all collected data** regardless of which subscription(s) it came from.
+
+**Database Location**: 
 ```
 /opt/CPvsec-R82/scripts/azure/cloudguard_controller
 ```
 
+## Workflow Summary
+```
+1. Scan Subscription A → Database
+2. Scan Subscription B → Database (data added)
+3. Scan Subscription C → Database (data added)
+4. Run dump tools → Extract ALL data from A+B+C
+```
+
 ## Tools Created
+
+> **Important**: These dump tools work on the **existing database** - no subscription specification needed!
 
 ### 1. Shell Script (Simple)
 **Location**: `/tmp/dump_azure_objects.sh`
 **Usage**:
 ```bash
+# Simply run the script - it reads from the populated database
 /tmp/dump_azure_objects.sh
 ```
 
 **Features**:
-- Shows all tables and record counts
+- Shows all tables and record counts from ALL scanned subscriptions
 - Displays table structure (columns and types)
 - Shows sample data (first 3 records per table)
-- Provides summary statistics
+- Provides summary statistics across all collected data
+- **No parameters required** - automatically finds the database
 
 ### 2. Python Script (Advanced)
 **Location**: `dump_azure_objects.py`
@@ -28,48 +48,122 @@ I've created tools to dump all Azure objects stored in the CloudGuard Controller
 # Copy to CloudGuard system first
 scp dump_azure_objects.py expert@135.237.14.172:/tmp/
 
-# Then run on CloudGuard system
+# Then run on CloudGuard system - NO subscription needed!
 python3 /tmp/dump_azure_objects.py [options]
 ```
 
-**Options**:
+**Key Point**: The Python script reads from the **existing database** containing data from all previously scanned subscriptions.
+
+**Common Usage Patterns**:
 ```bash
-# Dump all tables in readable format
+# Quick overview - dump all data from ALL subscriptions
 python3 dump_azure_objects.py
 
-# Dump as JSON
-python3 dump_azure_objects.py --format json
+# Export everything to JSON (includes all scanned subscriptions)
+python3 dump_azure_objects.py --format json --output full_azure_dump.json
 
-# Dump specific table only
+# Focus on specific resource type across all subscriptions
 python3 dump_azure_objects.py --table virtualMachines
+python3 dump_azure_objects.py --table networkSecurityGroups --format json
 
-# Save to file
-python3 dump_azure_objects.py --output azure_dump.json --format json
+# Export VMs from ALL subscriptions for reporting
+python3 dump_azure_objects.py --table virtualMachines --output vm_inventory.json --format json
+
+# Get readable summary of security groups (all subscriptions)
+python3 dump_azure_objects.py --table networkSecurityGroups --output nsg_summary.txt
 ```
+
+**All Available Options**:
+```bash
+--format {table,json}     # Output format (default: table)
+--table TABLE_NAME        # Dump specific table only
+--output FILENAME         # Save to file instead of stdout
+--help                    # Show all options
+```
+
+> **Note**: The database is **cumulative** - it contains objects from all subscriptions that have been scanned. The dump tools give you a unified view across your entire Azure environment.
 
 ## How to Populate the Database
 
 ### Prerequisites
-1. Set Azure credentials:
+1. **Azure Credentials**: Set up authentication to your Azure environment:
    ```bash
    export AZURE_CREDENTIALS="your_credentials_here"
-   # Optional: export AZURE_ENVIRONMENT="..."
+   # Optional: export AZURE_ENVIRONMENT="AzureCloud" (default)
    ```
 
-### Run Azure Scanning
+2. **CloudGuard Controller Access**: Ensure you have access to the CloudGuard system at the specified IP.
+
+### Step-by-Step Workflow
+
+#### 1. Test Azure Connection
+First, verify your Azure credentials work:
 ```bash
-# Test credentials first
 python3 /opt/CPvsec-R82/scripts/azure/vsec.py --test
+```
 
-# List subscriptions
+#### 2. Discover Available Subscriptions
+List all subscriptions you have access to:
+```bash
+# Replace <datacenter> with your datacenter name (e.g., "eastus", "westus2", etc.)
 python3 /opt/CPvsec-R82/scripts/azure/vsec.py -ls <datacenter>
+```
 
-# Scan specific subscription
+**Example output:**
+```
+Available subscriptions in eastus:
+- 12345678-1234-1234-1234-123456789abc (Production Environment)
+- 87654321-4321-4321-4321-cba987654321 (Development Environment)
+- abcdef12-5678-9012-3456-789012345678 (Testing Environment)
+```
+
+#### 3. Scan Specific Subscription(s)
+**Yes, you MUST specify a subscription ID**. The tool scans one subscription at a time:
+
+```bash
+# Basic scan (core resources only)
 python3 /opt/CPvsec-R82/scripts/azure/vsec.py -s <datacenter> <subscription_id>
 
-# Scan with additional resources
+# Extended scan with additional resources
 python3 /opt/CPvsec-R82/scripts/azure/vsec.py -s <datacenter> <subscription_id> --appgateways --apimgmtservices
 ```
+
+**Real example:**
+```bash
+# Scan production subscription in East US
+python3 /opt/CPvsec-R82/scripts/azure/vsec.py -s eastus 12345678-1234-1234-1234-123456789abc
+
+# Scan with Application Gateways and API Management
+python3 /opt/CPvsec-R82/scripts/azure/vsec.py -s eastus 12345678-1234-1234-1234-123456789abc --appgateways --apimgmtservices
+```
+
+#### 4. Scan Multiple Subscriptions (Optional)
+To populate the database with resources from multiple subscriptions, run the scan command for each subscription:
+
+```bash
+# Scan subscription 1
+python3 /opt/CPvsec-R82/scripts/azure/vsec.py -s eastus 12345678-1234-1234-1234-123456789abc
+
+# Scan subscription 2 (data will be added to existing database)
+python3 /opt/CPvsec-R82/scripts/azure/vsec.py -s eastus 87654321-4321-4321-4321-cba987654321
+
+# Scan subscription 3
+python3 /opt/CPvsec-R82/scripts/azure/vsec.py -s eastus abcdef12-5678-9012-3456-789012345678
+```
+
+### Scanning Options
+
+| Option | Description | Required |
+|--------|-------------|----------|
+| `<datacenter>` | Azure region (e.g., eastus, westus2) | ✅ Yes |
+| `<subscription_id>` | Target Azure subscription UUID | ✅ Yes |
+| `--appgateways` | Include Application Gateways | ❌ Optional |
+| `--apimgmtservices` | Include API Management Services | ❌ Optional |
+
+### Troubleshooting
+- **"No subscriptions found"**: Check your Azure credentials and permissions
+- **"Database creation failed"**: Verify write permissions to `/opt/CPvsec-R82/scripts/azure/`
+- **"Scan timeout"**: Large subscriptions may take 10-30 minutes to scan completely
 
 ## Database Structure
 
@@ -151,12 +245,35 @@ id                                          name        location
 }
 ```
 
-## Current Status
-- ❌ Database doesn't exist yet
-- ✅ Dump tools are ready
-- 💡 Need to run Azure scanning first to populate database
+## Quick Start Checklist
 
-## Next Steps
-1. Configure Azure credentials
-2. Run Azure scanning process
-3. Use dump tools to extract all stored objects
+- [ ] **Configure Azure credentials** (`export AZURE_CREDENTIALS="..."`)
+- [ ] **Test connection** (`python3 /opt/CPvsec-R82/scripts/azure/vsec.py --test`)
+- [ ] **List available subscriptions** (`python3 /opt/CPvsec-R82/scripts/azure/vsec.py -ls <datacenter>`)
+- [ ] **Scan target subscription(s)** (`python3 /opt/CPvsec-R82/scripts/azure/vsec.py -s <datacenter> <subscription_id>`)
+- [ ] **Verify database creation** (check if `/opt/CPvsec-R82/scripts/azure/cloudguard_controller` exists)
+- [ ] **Run dump tools** to extract collected data
+
+## Current Status
+- ❌ Database doesn't exist yet (run Azure scanning first)
+- ✅ Dump tools are ready and available
+- 📋 Waiting for subscription data to be collected
+
+## Important Notes
+
+### Data Collection (vsec.py)
+- **Subscription ID is mandatory** - the scanning tool cannot work without specifying a target subscription
+- **One subscription per scan** - repeat the scan command for each subscription you want to include
+- **Database is cumulative** - multiple scans will add data to the existing database
+- **Scan time varies** - expect 5-30 minutes depending on subscription size
+
+### Data Extraction (dump tools)
+- **No subscription needed** - dump tools read from the existing database
+- **Works on ALL data** - shows objects from every subscription that has been scanned
+- **Multiple output formats** - table view for humans, JSON for automation
+- **Selective extraction** - can focus on specific resource types if needed
+
+### Database Behavior
+- **Single database** holds objects from multiple subscriptions
+- **Persistent storage** - data remains until manually deleted
+- **Incremental updates** - rescanning a subscription will update its objects in the database
