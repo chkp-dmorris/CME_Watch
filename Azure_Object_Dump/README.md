@@ -56,6 +56,7 @@ python3 dump_azure_objects.py --help
 --table TABLE_NAME        # Dump specific table only
 --output FILENAME         # Save to file instead of stdout
 --help                    # Show all options
+--search SEARCH_TERM       # Search for a name or IP across all tables
 ```
 
 > **Note**: The database is **cumulative** - it contains objects from all subscriptions that have been scanned. The dump tools give you a unified view across your entire Azure environment.
@@ -160,3 +161,7 @@ id                                          name        location
   }
 }
 ```
+
+# Search for a name or IP across all tables
+python3 dump_azure_objects.py --search web-01
+python3 dump_azure_objects.py --search 10.0.0.4 --format json

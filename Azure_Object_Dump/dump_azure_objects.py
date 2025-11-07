@@ -60,7 +60,6 @@ def dump_table_data(cursor: sqlite3.Cursor, table_name: str) -> List[Dict[str, A
     """Dump all data from a specific table."""
     cursor.execute(f"SELECT * FROM {table_name}")
     columns = [description[0] for description in cursor.description]
-    
     rows = []
     for row in cursor.fetchall():
         row_dict = {}
@@ -74,7 +73,38 @@ def dump_table_data(cursor: sqlite3.Cursor, table_name: str) -> List[Dict[str, A
             else:
                 row_dict[columns[i]] = value
         rows.append(row_dict)
-    
+    return rows
+
+# New function to search by name or IP
+def search_table_data(cursor: sqlite3.Cursor, table_name: str, search_term: str) -> List[Dict[str, Any]]:
+    """Search for records in a table where 'name' or any 'ip' column contains the search term (case-insensitive)."""
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    columns = [col[1] for col in cursor.fetchall()]
+    search_columns = [col for col in columns if col.lower() == 'name' or 'ip' in col.lower()]
+    if not search_columns:
+        return []
+    # Build WHERE clause
+    like_clauses = [f"LOWER({col}) LIKE ?" for col in search_columns]
+    where_clause = " OR ".join(like_clauses)
+    params = [f"%{search_term.lower()}%"] * len(search_columns)
+    query = f"SELECT * FROM {table_name} WHERE {where_clause}"
+    try:
+        cursor.execute(query, params)
+    except Exception:
+        return []
+    columns = [description[0] for description in cursor.description]
+    rows = []
+    for row in cursor.fetchall():
+        row_dict = {}
+        for i, value in enumerate(row):
+            if columns[i] == 'json_data' and value:
+                try:
+                    row_dict[columns[i]] = json.loads(value)
+                except json.JSONDecodeError:
+                    row_dict[columns[i]] = value
+            else:
+                row_dict[columns[i]] = value
+        rows.append(row_dict)
     return rows
 
 def format_table_output(table_info: Dict[str, Any], data: List[Dict[str, Any]]) -> str:
@@ -118,20 +148,14 @@ def dump_all_objects(format_type: str = 'table', specific_table: str = None, out
     """Main function to dump all Azure objects."""
     if not check_database_exists():
         return
-    
     try:
-        # Connect to database
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
         print(f"📊 Connected to database: {DB_PATH}")
-        
-        # Get all tables
         tables = get_all_tables(cursor)
         if not tables:
             print("❌ No tables found in database.")
             return
-        
         # Filter to specific table if requested
         if specific_table:
             if specific_table not in tables:
@@ -139,19 +163,30 @@ def dump_all_objects(format_type: str = 'table', specific_table: str = None, out
                 print(f"Available tables: {', '.join(tables)}")
                 return
             tables = [specific_table]
-        
-        # Collect all data
-        all_data = {}
-        
-        for table_name in tables:
-            table_info = get_table_info(cursor, table_name)
-            table_data = dump_table_data(cursor, table_name)
-            
-            all_data[table_name] = {
-                'info': table_info,
-                'data': table_data
-            }
-        
+        # If search is requested, filter results
+        if hasattr(dump_all_objects, 'search_term') and dump_all_objects.search_term:
+            search_term = dump_all_objects.search_term
+            all_data = {}
+            for table_name in tables:
+                table_info = get_table_info(cursor, table_name)
+                table_data = search_table_data(cursor, table_name, search_term)
+                if table_data:
+                    all_data[table_name] = {
+                        'info': table_info,
+                        'data': table_data
+                    }
+            if not all_data:
+                print(f"No results found for search: {search_term}")
+                return
+        else:
+            all_data = {}
+            for table_name in tables:
+                table_info = get_table_info(cursor, table_name)
+                table_data = dump_table_data(cursor, table_name)
+                all_data[table_name] = {
+                    'info': table_info,
+                    'data': table_data
+                }
         # Generate output
         if format_type == 'json':
             output_content = json.dumps(all_data, indent=2, default=str)
@@ -160,33 +195,26 @@ def dump_all_objects(format_type: str = 'table', specific_table: str = None, out
             output_parts.append(f"Azure Objects Database Dump")
             output_parts.append(f"Generated: {os.popen('date').read().strip()}")
             output_parts.append(f"Database: {DB_PATH}")
-            output_parts.append(f"Tables found: {len(tables)}")
-            
-            for table_name in tables:
+            output_parts.append(f"Tables found: {len(all_data)}")
+            for table_name in all_data:
                 table_info = all_data[table_name]['info']
                 table_data = all_data[table_name]['data']
                 output_parts.append(format_table_output(table_info, table_data))
-            
             output_content = '\n'.join(output_parts)
-        
-        # Write to file or print
         if output_file:
             with open(output_file, 'w') as f:
                 f.write(output_content)
             print(f"✅ Output written to: {output_file}")
         else:
             print(output_content)
-        
         # Summary
-        total_records = sum(all_data[table]['info']['row_count'] for table in all_data)
+        total_records = sum(len(all_data[table]['data']) for table in all_data)
         print(f"\n📋 Summary:")
-        print(f"   Tables: {len(tables)}")
+        print(f"   Tables: {len(all_data)}")
         print(f"   Total records: {total_records}")
-        
-        for table_name in tables:
-            count = all_data[table_name]['info']['row_count']
+        for table_name in all_data:
+            count = len(all_data[table_name]['data'])
             print(f"   - {table_name}: {count} records")
-        
     except Exception as e:
         print(f"❌ Error: {e}")
     finally:
@@ -202,25 +230,29 @@ def main():
 Examples:
     # Dump all tables in readable format
     python3 dump_azure_objects.py
-    
+
     # Dump as JSON
     python3 dump_azure_objects.py --format json
-    
+
     # Dump specific table only
     python3 dump_azure_objects.py --table virtualMachines
-    
+
     # Save to file
     python3 dump_azure_objects.py --output azure_dump.json --format json
+
+    # Search for a name or IP
+    python3 dump_azure_objects.py --search web-01
+    python3 dump_azure_objects.py --search 10.0.0.4 --format json
         """
     )
-    
     parser.add_argument('--format', choices=['json', 'table'], default='table',
                         help='Output format (default: table)')
     parser.add_argument('--table', help='Dump specific table only')
     parser.add_argument('--output', help='Output file (default: stdout)')
-    
+    parser.add_argument('--search', help='Search for a name or IP across all tables')
     args = parser.parse_args()
-    
+    # Pass search term to dump_all_objects via attribute
+    dump_all_objects.search_term = args.search
     dump_all_objects(args.format, args.table, args.output)
 
 if __name__ == "__main__":
